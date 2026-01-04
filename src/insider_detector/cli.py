@@ -570,6 +570,188 @@ def dashboard(
         console.print("[yellow]Make sure to install dashboard dependencies: pip install fastapi uvicorn[/yellow]")
 
 
+@app.command()
+def backtest(
+    optimize: bool = typer.Option(False, "--optimize", "-o", help="Optimize detection thresholds"),
+    threshold: float = typer.Option(0.5, "--threshold", "-t", help="Suspicion score threshold"),
+    debug: bool = typer.Option(False, "--debug", "-d"),
+):
+    """
+    Run backtesting against known insider trading cases.
+
+    Tests detection algorithms against documented cases of suspected
+    insider trading to validate accuracy.
+    """
+    setup_logging(debug)
+
+    from .backtesting import BacktestEngine, BacktestConfig
+
+    config = BacktestConfig(min_suspicion_score=threshold)
+    engine = BacktestEngine(config=config)
+
+    if optimize:
+        console.print("[bold]Optimizing detection thresholds...[/bold]")
+        results = engine.optimize_thresholds()
+
+        table = Table(title="Threshold Optimization Results", show_header=True)
+        table.add_column("Threshold")
+        table.add_column("Detection Rate", justify="right")
+        table.add_column("Precision", justify="right")
+        table.add_column("F1 Score", justify="right")
+        table.add_column("Signal Accuracy", justify="right")
+        table.add_column("ROI", justify="right")
+
+        for threshold, r in results.items():
+            table.add_row(
+                f"{threshold:.1f}",
+                f"{r['detection_rate']:.1%}",
+                f"{r['precision']:.1%}",
+                f"{r['f1_score']:.2f}",
+                f"{r['signal_accuracy']:.1%}",
+                f"{r['roi']:.1f}%",
+            )
+
+        console.print(table)
+    else:
+        console.print(f"[bold]Running backtest with threshold {threshold}...[/bold]")
+        metrics = engine.run_all_scenarios()
+        console.print(engine.print_report(metrics))
+
+
+@app.command()
+def portfolio(
+    action: str = typer.Argument("show", help="Action: show, add, close, export"),
+    market_id: Optional[str] = typer.Option(None, "--market", "-m", help="Market ID"),
+    side: Optional[str] = typer.Option(None, "--side", "-s", help="Position side: YES or NO"),
+    shares: Optional[float] = typer.Option(None, "--shares", help="Number of shares"),
+    price: Optional[float] = typer.Option(None, "--price", "-p", help="Entry price (0-1)"),
+    outcome: Optional[str] = typer.Option(None, "--outcome", "-o", help="Market outcome: yes or no"),
+    platform: str = typer.Option("polymarket", "--platform", help="Platform"),
+):
+    """
+    Manage your prediction market portfolio.
+
+    Actions:
+        show    - Display current positions and P&L
+        add     - Add a new position
+        close   - Close a position with outcome
+        export  - Export trade history to CSV
+    """
+    from decimal import Decimal
+    from .portfolio import PortfolioTracker
+
+    tracker = PortfolioTracker()
+
+    if action == "show":
+        summary = tracker.get_summary()
+
+        # Summary panel
+        console.print(Panel(
+            f"[bold]Open Positions:[/bold] {summary.open_positions}\n"
+            f"[bold]Closed Positions:[/bold] {summary.closed_positions}\n"
+            f"[bold]Total Invested:[/bold] ${float(summary.total_invested):,.2f}\n"
+            f"[bold]Unrealized P&L:[/bold] ${float(summary.unrealized_pnl):,.2f}\n"
+            f"[bold]Realized P&L:[/bold] ${float(summary.realized_pnl):,.2f}\n"
+            f"[bold]Total P&L:[/bold] ${float(summary.total_pnl):,.2f}\n"
+            f"[bold]Win Rate:[/bold] {summary.win_rate:.1%}",
+            title="Portfolio Summary",
+        ))
+
+        # Open positions
+        open_positions = tracker.get_open_positions()
+        if open_positions:
+            table = Table(title="Open Positions", show_header=True)
+            table.add_column("Market")
+            table.add_column("Side")
+            table.add_column("Shares", justify="right")
+            table.add_column("Entry", justify="right")
+            table.add_column("Current", justify="right")
+            table.add_column("P&L", justify="right")
+            table.add_column("P&L %", justify="right")
+
+            for pos in open_positions:
+                pnl_style = "green" if pos.unrealized_pnl >= 0 else "red"
+                table.add_row(
+                    pos.market_title[:30] + "..." if len(pos.market_title) > 30 else pos.market_title,
+                    pos.side,
+                    f"{float(pos.shares):.1f}",
+                    f"{float(pos.avg_entry_price):.1%}",
+                    f"{float(pos.current_price):.1%}",
+                    f"[{pnl_style}]${float(pos.unrealized_pnl):,.2f}[/]",
+                    f"[{pnl_style}]{pos.unrealized_pnl_percent:.1f}%[/]",
+                )
+
+            console.print(table)
+
+    elif action == "add":
+        if not all([market_id, side, shares, price]):
+            console.print("[red]Error: --market, --side, --shares, and --price are required[/red]")
+            return
+
+        plat = Platform.POLYMARKET if platform.lower() == "polymarket" else Platform.KALSHI
+        pos = tracker.add_position(
+            market_id=market_id,
+            market_title=market_id,  # Will be updated when we fetch market data
+            platform=plat,
+            side=side.upper(),
+            shares=Decimal(str(shares)),
+            entry_price=Decimal(str(price)),
+        )
+        console.print(f"[green]Added position: {shares} {side.upper()} @ {price:.1%}[/green]")
+
+    elif action == "close":
+        if not market_id or outcome is None:
+            console.print("[red]Error: --market and --outcome are required[/red]")
+            return
+
+        result = outcome.lower() == "yes"
+        pnl = tracker.close_position(market_id, result)
+        if pnl is not None:
+            style = "green" if pnl >= 0 else "red"
+            console.print(f"[{style}]Position closed. P&L: ${float(pnl):,.2f}[/]")
+        else:
+            console.print("[yellow]Position not found[/yellow]")
+
+    elif action == "export":
+        from .portfolio import TradeLog
+        log = TradeLog()
+        export_path = Path("data/trades_export.csv")
+        log.export_csv(export_path)
+        console.print(f"[green]Exported to {export_path}[/green]")
+
+
+@app.command()
+def notify_test(
+    message: str = typer.Option("Test alert from Insider Trading Detector", "--message", "-m"),
+):
+    """
+    Test notification settings (Telegram/Discord).
+
+    Make sure TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, and/or DISCORD_WEBHOOK_URL
+    are set in your environment or .env file.
+    """
+    from .notifications import create_notifier_from_env
+
+    notifier = create_notifier_from_env()
+
+    if not notifier:
+        console.print("[yellow]No notification services configured.[/yellow]")
+        console.print("\nTo enable notifications, set these environment variables:")
+        console.print("  TELEGRAM_BOT_TOKEN - Your Telegram bot token")
+        console.print("  TELEGRAM_CHAT_ID   - Your Telegram chat/user ID")
+        console.print("  DISCORD_WEBHOOK_URL - Discord webhook URL")
+        return
+
+    async def send():
+        success = await notifier.send_message(message)
+        if success:
+            console.print("[green]Test notification sent successfully![/green]")
+        else:
+            console.print("[red]Failed to send notification. Check your credentials.[/red]")
+
+    asyncio.run(send())
+
+
 def main():
     """Entry point."""
     app()
