@@ -540,6 +540,36 @@ def smart_money(
     asyncio.run(run())
 
 
+@app.command()
+def dashboard(
+    host: str = typer.Option("0.0.0.0", "--host", "-h", help="Host to bind to"),
+    port: int = typer.Option(8000, "--port", "-p", help="Port to bind to"),
+    reload: bool = typer.Option(False, "--reload", "-r", help="Enable auto-reload for development"),
+    debug: bool = typer.Option(False, "--debug", "-d"),
+):
+    """
+    Start the web dashboard.
+
+    Opens a browser-based interface for analyzing suspicious accounts,
+    viewing alerts, and finding trading opportunities.
+    """
+    setup_logging(debug)
+
+    console.print(Panel(
+        f"[bold]Starting dashboard server[/bold]\n\n"
+        f"Open [cyan]http://localhost:{port}[/cyan] in your browser\n\n"
+        f"Press Ctrl+C to stop",
+        title="Insider Trading Detector Dashboard",
+    ))
+
+    try:
+        from .dashboard import run_server
+        run_server(host=host, port=port, reload=reload)
+    except ImportError as e:
+        console.print(f"[red]Failed to start dashboard: {e}[/red]")
+        console.print("[yellow]Make sure to install dashboard dependencies: pip install fastapi uvicorn[/yellow]")
+
+
 def main():
     """Entry point."""
     app()

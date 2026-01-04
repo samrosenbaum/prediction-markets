@@ -14,6 +14,7 @@ A tool to detect potential insider trading activity on prediction markets like P
   - Low-probability winners
 - **Real-time Monitoring**: Stream live trades and get instant alerts
 - **Trading Signals**: Get recommendations based on "smart money" activity
+- **Web Dashboard**: Browser-based interface for analysis and visualization
 
 ## Installation
 
@@ -83,6 +84,31 @@ insider-detector smart-money --platform polymarket --limit 20
 # Watch a specific account
 insider-detector watch 0x1234... --platform polymarket --reason "High win rate on political markets"
 ```
+
+### Web Dashboard
+
+```bash
+# Start the web dashboard
+insider-detector dashboard
+
+# Custom host and port
+insider-detector dashboard --host 0.0.0.0 --port 8080
+
+# Development mode with auto-reload
+insider-detector dashboard --reload
+```
+
+Then open http://localhost:8000 in your browser.
+
+**Dashboard Features:**
+- **Overview**: Stats, top suspicious accounts, recent alerts, trading opportunities
+- **Suspicious Accounts**: Sortable/filterable table with detailed account profiles
+- **Opportunities**: Trading signals based on detected insider activity
+- **Alerts**: Real-time alerts with priority filtering
+- **Markets**: Browse active markets from Polymarket and Kalshi
+- **Watched Accounts**: Track specific accounts for trading signals
+
+![Dashboard Screenshot](docs/dashboard.png)
 
 ## Detection Methods
 
